@@ -6,7 +6,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/opt/teletwat
-ExecStart=/opt/teletwat/.venv/bin/python /opt/teletwat/app.py
+ExecStart=/opt/teletwat/.venv/bin/python /opt/teletwat/tvh.py
 Restart=on-failure
 RestartSec=3
 User=root
