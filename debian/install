@@ -7,3 +7,4 @@ gst_ndi.py          opt/teletwat/
 tvh.py              opt/teletwat/
 requirements.txt    opt/teletwat/
 static/*            opt/teletwat/static/
+debian/teletwat.service  lib/systemd/system/
