@@ -1,0 +1,5 @@
+fastapi>=0.100
+pydantic>=2
+requests>=2
+urllib3>=2
+PyGObject>=3.40
