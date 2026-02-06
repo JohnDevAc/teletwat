@@ -8,6 +8,4 @@ Homepage: https://github.com/JohnDevAc/teletwat
 
 Package: teletwat
 Architecture: all
-Depends: python3
-Description: teletwat
- Packaged install for the teletwat project.
+Depends: python3, python3-venv, python3-pip
