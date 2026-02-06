@@ -1,0 +1,11 @@
+Package: teletwat
+Version: 0.1.0-1
+Architecture: all
+Maintainer: John Lightfoot <john@johnlightfootdesign.com>
+Installed-Size: 315
+Depends: python3
+Section: utils
+Priority: optional
+Homepage: https://github.com/JohnDevAc/teletwat
+Description: teletwat
+ Packaged install for the teletwat project.
