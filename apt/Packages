@@ -1,14 +1,14 @@
 Package: teletwat
-Version: 0.1.0-1
+Version: 0.1.0-2
 Architecture: all
 Maintainer: John Lightfoot <john@johnlightfootdesign.com>
-Installed-Size: 14
+Installed-Size: 322
 Depends: python3, python3-venv, python3-pip
-Filename: pool/teletwat_0.1.0-1_all.deb
-Size: 1704
-MD5sum: 9e4af84099ba1558b24642ba75b344c7
-SHA1: 47b86f3cd9d3bd4b4b00dc2d43fd3c7e35a5a9d2
-SHA256: af179f8c222cecd418a453dca158e94eefdd3cf86b25a2981fda3281f15fc8b2
+Filename: pool/teletwat_0.1.0-2_all.deb
+Size: 194324
+MD5sum: 092c733095ffc55c31b833f7803cea9a
+SHA1: c8b8c84ad94a18190b81daee80ab35ee7fa3244b
+SHA256: b31113b0f0d20acff54033153fe3666e7f3c787307e3638d30a229bc86b4d87b
 Section: utils
 Priority: optional
 Homepage: https://github.com/JohnDevAc/teletwat
