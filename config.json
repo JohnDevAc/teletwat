@@ -2,7 +2,7 @@
   "tvh_base_url": "http://127.0.0.1:9981",
   "tvh_stream_profile": "pass",
   "ndi_default_name": "TVH NDI",
-  "ndi_delay_ms": 250,
+  "ndi_delay_ms": 0,
   "ndi_deinterlace": false,
   "ndi_buffer_extra_ms": 1000,
   "ndi_qos": false,
@@ -16,7 +16,7 @@
   "log_maxlen": 400,
   "ndi_delay_min_ms": 20,
   "ndi_delay_max_ms": 500,
-  "ndi_buffer_extra_max_ms": 3000,
+  "ndi_buffer_extra_max_ms": 1500,
   "ndi_min_queue_time_ms": 1000,
   "ndi_video_format": "UYVY",
   "audio_rate_hz": 48000,
@@ -28,5 +28,6 @@
   "aes67_sap_interval_s": 5.0,
   "aes67_sap_src_ip": null,
   "aes67_ptp_clock_id": null,
-  "aes67_ptp_domain": 0
+  "aes67_ptp_domain": 0,
+  "aes67_use_ptp_clock": true
 }

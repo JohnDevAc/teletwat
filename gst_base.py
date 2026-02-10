@@ -7,7 +7,8 @@ import gi
 
 gi.require_version("Gst", "1.0")
 gi.require_version("GLib", "2.0")
-from gi.repository import Gst, GLib  # type: ignore
+gi.require_version("GstNet", "1.0")
+from gi.repository import Gst, GLib, GstNet  # type: ignore
 
 Gst.init(None)
 
@@ -137,7 +138,7 @@ class GstPipelineBase:
 
         return self._call_in_gst_context(_do)
 
-    def _start_pipeline(self, pipeline_desc: str, poll_cb: Optional[Callable[[], bool]] = None):
+    def _start_pipeline(self, pipeline_desc: str, poll_cb: Optional[Callable[[], bool]] = None, ptp_domain: Optional[int] = None):
         GstPipelineBase.stop(self)
 
         with self._lock:
