@@ -167,15 +167,19 @@ class GstNDIBridge(GstPipelineBase):
         origin_ip: Optional[str] = None,
         ptp_clock_id: Optional[str] = None,
         ptp_domain: int = 0,
+        stream_name: Optional[str] = None,
     ) -> str:
         # Some receivers (incl. Dante Controller) are picky about SAP/SDP formatting.
         # Use a conventional multicast connection line and include AES67 clock attributes.
         ip = origin_ip or _guess_local_ip()
         origin = f"- {int(time.time())} 1 IN IP4 {ip}"
+        # Dante Controller typically uses the SDP session name ("s=") as the
+        # human-readable stream name. Mirror the NDI name when available.
+        s_name = (stream_name or "TVH AES67").replace("\n", " ").replace("\r", " ").strip() or "TVH AES67"
         return (
             "v=0\n"
             f"o={origin}\n"
-            "s=TVH AES67\n"
+            f"s={s_name}\n"
             "t=0 0\n"
             "a=recvonly\n"
             # Media description first, then connection information (Dante is picky).
@@ -319,7 +323,16 @@ class GstNDIBridge(GstPipelineBase):
         ptp_clock_id = cfg.get("aes67_ptp_clock_id") or cfg.get("aes67_ptp_clock_identity") or None
         ptp_domain = int(cfg.get("aes67_ptp_domain", 0))
 
-        sdp = self._build_aes67_sdp(multicast_addr, rtp_port_i, ptime_ms_i, ttl=ttl_i, origin_ip=(sap_src_ip or _guess_local_ip()), ptp_clock_id=ptp_clock_id, ptp_domain=ptp_domain)
+        sdp = self._build_aes67_sdp(
+            multicast_addr,
+            rtp_port_i,
+            ptime_ms_i,
+            ttl=ttl_i,
+            origin_ip=(sap_src_ip or _guess_local_ip()),
+            ptp_clock_id=ptp_clock_id,
+            ptp_domain=ptp_domain,
+            stream_name=(self._ndi_name or None),
+        )
 
         # Stop any previous SAP announcer, then start a new one for the updated SDP.
         self._stop_sap()
