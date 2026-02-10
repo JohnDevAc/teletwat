@@ -9,7 +9,7 @@
   "aes67_multicast_addr": "239.69.0.1",
   "aes67_rtp_port": 5004,
   "aes67_ttl": 16,
-  "aes67_sap_mcast": "224.2.127.254",
+  "aes67_sap_mcast": "239.255.255.255",
   "aes67_sap_port": 9875,
   "aes67_ptime_ms": 1,
   "enable_bitrate_probe": false,
@@ -26,5 +26,7 @@
   "aes67_rtp_pt": 96,
   "aes67_sap_ttl": 255,
   "aes67_sap_interval_s": 5.0,
-  "aes67_sap_src_ip": null
+  "aes67_sap_src_ip": null,
+  "aes67_ptp_clock_id": null,
+  "aes67_ptp_domain": 0
 }

@@ -158,20 +158,36 @@ class GstNDIBridge(GstPipelineBase):
             except Exception:
                 pass
 
-    def _build_aes67_sdp(self, multicast_addr: str, rtp_port: int, ptime_ms: int, ttl: int = 32) -> str:
-        origin = f"- {int(time.time())} 1 IN IP4 {_guess_local_ip()}"
+    def _build_aes67_sdp(
+        self,
+        multicast_addr: str,
+        rtp_port: int,
+        ptime_ms: int,
+        ttl: int = 32,
+        origin_ip: Optional[str] = None,
+        ptp_clock_id: Optional[str] = None,
+        ptp_domain: int = 0,
+    ) -> str:
+        # Some receivers (incl. Dante Controller) are picky about SAP/SDP formatting.
+        # Use a conventional multicast connection line and include AES67 clock attributes.
+        ip = origin_ip or _guess_local_ip()
+        origin = f"- {int(time.time())} 1 IN IP4 {ip}"
         return (
             "v=0\n"
             f"o={origin}\n"
             "s=TVH AES67\n"
             "t=0 0\n"
-            # For multicast, the /<ttl> suffix indicates the TTL in SDP.
-            f"c=IN IP4 {multicast_addr}/{int(ttl)}\n"
+            "a=recvonly\n"
+            # Media description first, then connection information (Dante is picky).
             f"m=audio {int(rtp_port)} RTP/AVP 96\n"
+            f"c=IN IP4 {multicast_addr}/32\n"
+            f"a=rtcp:{int(rtp_port)+1}\n"
             "a=rtpmap:96 L16/48000/2\n"
             f"a=ptime:{int(ptime_ms)}\n"
+            # AES67 clocking: prefer real PTP clock identity/domain when provided.
+            + (f"a=ts-refclk:ptp=IEEE1588-2008:{ptp_clock_id}:{int(ptp_domain)}\n" if ptp_clock_id else "a=ts-refclk:ptp=IEEE1588-2008:00-00-00-00-00-00-00-00:0\n")
+            + "a=mediaclk:direct=0\n"
         )
-
     # ---------- Public API ----------
 
     def status(self) -> Dict:
@@ -300,7 +316,10 @@ class GstNDIBridge(GstPipelineBase):
         payload_bytes = int(rate_hz * ptime_ms_i / 1000) * channels * 2
         mtu = 12 + payload_bytes
 
-        sdp = self._build_aes67_sdp(multicast_addr, rtp_port_i, ptime_ms_i, ttl=ttl_i)
+        ptp_clock_id = cfg.get("aes67_ptp_clock_id") or cfg.get("aes67_ptp_clock_identity") or None
+        ptp_domain = int(cfg.get("aes67_ptp_domain", 0))
+
+        sdp = self._build_aes67_sdp(multicast_addr, rtp_port_i, ptime_ms_i, ttl=ttl_i, origin_ip=(sap_src_ip or _guess_local_ip()), ptp_clock_id=ptp_clock_id, ptp_domain=ptp_domain)
 
         # Stop any previous SAP announcer, then start a new one for the updated SDP.
         self._stop_sap()

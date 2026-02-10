@@ -24,7 +24,7 @@ class SapAnnouncer:
         self,
         sdp: str,
         src_ip: Optional[str] = None,
-        sap_mcast: str = "224.2.127.254",
+        sap_mcast: str = "239.255.255.255",
         sap_port: int = 9875,
         ttl: int = 255,
         interval_s: float = 5.0,
@@ -55,8 +55,9 @@ class SapAnnouncer:
         auth_len = 0
         header = struct.pack("!BBH", hdr0, auth_len, self._msg_id_hash)
         src = socket.inet_aton(self.src_ip)
+        payload_type = b"application/sdp\x00"
         payload = self.sdp.encode("utf-8")
-        return header + src + payload
+        return header + src + payload_type + payload
 
     def _run(self):
         pkt = self._build_packet()
