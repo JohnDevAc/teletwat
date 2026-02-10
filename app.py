@@ -185,7 +185,7 @@ class AES67StartReq(BaseModel):
     multicast_addr: str = Field(default_factory=lambda: cfg.get("aes67_multicast_addr", "239.69.0.1"))
     rtp_port: int = Field(default_factory=lambda: int(cfg.get("aes67_rtp_port", 5004)))
     ttl: int = Field(default_factory=lambda: int(cfg.get("aes67_ttl", 16)))
-    sap_mcast: str = Field(default_factory=lambda: cfg.get("aes67_sap_mcast", "224.2.127.254"))
+    sap_mcast: str = Field(default_factory=lambda: cfg.get("aes67_sap_mcast", "239.255.255.255"))
     sap_port: int = Field(default_factory=lambda: int(cfg.get("aes67_sap_port", 9875)))
     ptime_ms: int = Field(default_factory=lambda: int(cfg.get("aes67_ptime_ms", 1)))
 @app.get("/api/aes67/status")
@@ -197,7 +197,7 @@ def api_aes67_defaults():
         "multicast_addr": cfg.get("aes67_multicast_addr", "239.69.0.1"),
         "rtp_port": int(cfg.get("aes67_rtp_port", 5004)),
         "ttl": int(cfg.get("aes67_ttl", 16)),
-        "sap_mcast": cfg.get("aes67_sap_mcast", "224.2.127.254"),
+        "sap_mcast": cfg.get("aes67_sap_mcast", "239.255.255.255"),
         "sap_port": int(cfg.get("aes67_sap_port", 9875)),
         "ptime_ms": int(cfg.get("aes67_ptime_ms", 1)),
     }

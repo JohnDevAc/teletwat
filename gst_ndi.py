@@ -163,6 +163,8 @@ class GstNDIBridge(GstPipelineBase):
         multicast_addr: str,
         rtp_port: int,
         ptime_ms: int,
+        rate_hz: int = 48000,
+        channels: int = 2,
         ttl: int = 32,
         origin_ip: Optional[str] = None,
         ptp_clock_id: Optional[str] = None,
@@ -171,8 +173,17 @@ class GstNDIBridge(GstPipelineBase):
     ) -> str:
         # Some receivers (incl. Dante Controller) are picky about SAP/SDP formatting.
         # Use a conventional multicast connection line and include AES67 clock attributes.
+        #
+        # IMPORTANT (persistence): Controllers may cache SAP/SDP 'devices'. If the SDP
+        # origin session-id changes on each run (e.g. using time.time()), the same stream
+        # can appear as a NEW device after reboot. Use a stable sess-id derived from the
+        # stream identity.
+        import zlib
+
         ip = origin_ip or _guess_local_ip()
-        origin = f"- {int(time.time())} 1 IN IP4 {ip}"
+        ident = f"{stream_name or 'AES67'}|{multicast_addr}|{rtp_port}|{channels}|{rate_hz}"
+        sess_id = zlib.crc32(ident.encode('utf-8', errors='replace')) & 0xFFFFFFFF
+        origin = f"- {sess_id} 1 IN IP4 {ip}"
         # Dante Controller typically uses the SDP session name ("s=") as the
         # human-readable stream name. Mirror the NDI name when available.
         s_name = (stream_name or "TVH AES67").replace("\n", " ").replace("\r", " ").strip() or "TVH AES67"
@@ -186,7 +197,7 @@ class GstNDIBridge(GstPipelineBase):
             f"m=audio {int(rtp_port)} RTP/AVP 96\n"
             f"c=IN IP4 {multicast_addr}/32\n"
             f"a=rtcp:{int(rtp_port)+1}\n"
-            "a=rtpmap:96 L16/48000/2\n"
+            f"a=rtpmap:96 L16/{int(rate_hz)}/{int(channels)}\n"
             f"a=ptime:{int(ptime_ms)}\n"
             # AES67 clocking: prefer real PTP clock identity/domain when provided.
             + (f"a=ts-refclk:ptp=IEEE1588-2008:{ptp_clock_id}:{int(ptp_domain)}\n" if ptp_clock_id else "a=ts-refclk:ptp=IEEE1588-2008:00-00-00-00-00-00-00-00:0\n")
@@ -308,7 +319,9 @@ class GstNDIBridge(GstPipelineBase):
         sap_mcast_i = str(cfg.get("aes67_sap_mcast", "224.2.127.254") if sap_mcast is None else sap_mcast)
         sap_port_i = int(cfg.get("aes67_sap_port", 9875) if sap_port is None else sap_port)
         sap_ttl_i = int(cfg.get("aes67_sap_ttl", 255))
-        sap_interval_s = float(cfg.get("aes67_sap_interval_s", 5.0))
+        # Optional: announce more frequently so stale entries age out sooner in controllers.
+        # (Receivers may still cache for a while after hard power loss.)
+        sap_interval_s = float(cfg.get("aes67_sap_interval_s", 1.0))
         sap_src_ip = cfg.get("aes67_sap_src_ip") or None
 
         ptime_ms_i = max(1, int(ptime_default if ptime_ms is None else ptime_ms))
@@ -327,6 +340,8 @@ class GstNDIBridge(GstPipelineBase):
             multicast_addr,
             rtp_port_i,
             ptime_ms_i,
+            rate_hz,
+            channels,
             ttl=ttl_i,
             origin_ip=(sap_src_ip or _guess_local_ip()),
             ptp_clock_id=ptp_clock_id,
@@ -336,7 +351,16 @@ class GstNDIBridge(GstPipelineBase):
 
         # Stop any previous SAP announcer, then start a new one for the updated SDP.
         self._stop_sap()
-        sap = SapAnnouncer(sdp=sdp, src_ip=sap_src_ip, sap_mcast=sap_mcast_i, sap_port=sap_port_i, ttl=sap_ttl_i, interval_s=sap_interval_s)
+        identity_key = f"{self._ndi_name or 'AES67'}|{multicast_addr}|{rtp_port_i}|{sap_mcast_i}|{sap_port_i}"
+        sap = SapAnnouncer(
+            sdp=sdp,
+            src_ip=sap_src_ip,
+            sap_mcast=sap_mcast_i,
+            sap_port=sap_port_i,
+            ttl=sap_ttl_i,
+            interval_s=sap_interval_s,
+            identity_key=identity_key,
+        )
         sap.start()
 
         def _apply():
