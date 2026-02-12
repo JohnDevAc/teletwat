@@ -29,5 +29,5 @@
   "aes67_sap_src_ip": null,
   "aes67_ptp_clock_id": null,
   "aes67_ptp_domain": 0,
-  "aes67_use_ptp_clock": false
+  "aes67_use_ptp_clock": true
 }
