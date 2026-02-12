@@ -4,6 +4,18 @@ FastAPI app for bridging TVHeadend ↔ NDI ↔ AES67 (GStreamer-based).
 
 ## Quick start
 
+Download Golden image - Unzip, Flash, Expand FS.
+
+https://www.johnlightfoot.biz/teletwat.img.gz
+
+update project files from git if needed via SSH admin:admin@<your-pi>
+
+or
+
+Self Created
+
+Install TVHEADEND, Create no challenge guest access in TVHeeadend.
+
 1. Create a virtual environment and install Python deps:
 
 ```bash
