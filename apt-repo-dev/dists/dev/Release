@@ -1,28 +1,28 @@
 Architectures: arm64
 Codename: dev
 Components: main
-Date: Fri, 31 Jul 2026 20:16:53 +0000
+Date: Sat, 05 Sep 2026 12:00:32 +0000
 Description: TeleTool Raspberry Pi packages
 Label: TeleTool
 Origin: TeleTool
 Suite: dev
 MD5Sum:
- 19dd96864e4aa937364485a971e790ab              178 Release
- c2cbbd16c0a658083a873ce47d6ec3aa             2345 main/binary-arm64/Packages
- 960681af011b62d9b502a67fc3782749             1137 main/binary-arm64/Packages.gz
- ea1dbdb56c174eac10b099943eb62c3a             1216 main/binary-arm64/Packages.xz
+ 6d508e3caf748384353b04055d3dface              178 Release
+ 7ca80619dbccc33483c22f064e21f54a             2345 main/binary-arm64/Packages
+ 6c21dac9dae45e9bdab75926734eceba             1133 main/binary-arm64/Packages.gz
+ 547919b5692000eaeb0baf020ed04ecc             1216 main/binary-arm64/Packages.xz
 SHA1:
- c6b0d9a1d4b4026c3e1eb582bb2ea0734fbd93fa              178 Release
- 0f613e4a2f39364573b1754783c765bb36499372             2345 main/binary-arm64/Packages
- fb611043d1eb1ee04ece8a7b0ed352d755983e68             1137 main/binary-arm64/Packages.gz
- 896205e80838c2c919c0d0d17de862107eb2b953             1216 main/binary-arm64/Packages.xz
+ 7083ff9b39e1b310d81bd247b502dbdd17bebbad              178 Release
+ 1bb90d40df3b8c680a2a14deaecaf38bf767824d             2345 main/binary-arm64/Packages
+ 4724bf4f9249b30c436babe1d3f6335558526d91             1133 main/binary-arm64/Packages.gz
+ 0249cc40a626b089305e17a33afc9944451efc8b             1216 main/binary-arm64/Packages.xz
 SHA256:
- 4a52e9f8e3af800116d96f80d26572d8f0aedf3266cf83c61654e45aa426e6f9              178 Release
- 481ef7d40152f9c707d79285f8a191ef8a9279e63d9d22d7321302360df97460             2345 main/binary-arm64/Packages
- a17323b0ed32fe6bcf2165b69e1eb1d99d6e418b183997b6ce6c95c415fd1ef7             1137 main/binary-arm64/Packages.gz
- 4ba4858c20d13857f756bf0c1c26e5b222a59074ef1ee2ef0947c51cbc1a128a             1216 main/binary-arm64/Packages.xz
+ 9825d9d6b42b619649bc2c171378f45c39ecbc4948dd894bad75421da36d5f2f              178 Release
+ 88b7aa8501c7d771e31b1c3eac4ae1a66f6335360d3d650e079b443c331e6fd8             2345 main/binary-arm64/Packages
+ 8e4952a1caca2cc7603bd7c2b3738487b7d082e63d265d847b9241bc51923985             1133 main/binary-arm64/Packages.gz
+ 0ada5a4680b2164dc2039614013515acbe341184e46fc392a589082c8da93512             1216 main/binary-arm64/Packages.xz
 SHA512:
- 458eb47ae3f5f95423cbcf6c168349bd0fc0f392b02bc9bf304daf7717d8126fe6e0faaf17826a2715c4abbfda4742a905b204b77ae4c5c76b20beec2ec5dfdd              178 Release
- 4115cbd81d0c80ff477c333cade0a9caeaddceeb4e9468e1e1b3772750aeb67f2ea8d31750b689d79f00992156e628c053df1b64d57d8ed42770eb9dc7fe2761             2345 main/binary-arm64/Packages
- a8965069ce77d1d34817993fcce94f9d966a91ea0cc77afaaa8431c7340b726a53eed9df50275ff8f65666c2d021ad9941e85ede43aa8b5b49b09ae1cfdbe7e7             1137 main/binary-arm64/Packages.gz
- 798ab45010c3722531045224ed700dc25eeaae97704d5c903cefe591b002ee36031078efa9ee9aa3d1f755624321a925405c2602f30f235e7e68b5816b4ff9ef             1216 main/binary-arm64/Packages.xz
+ 7854015a7fcedb16069d860e6962944e255ca285e18548dd7e42abf705a2ef4bea0c0e1e239822b6b50293ba534761daa0d1f02c95d57a99335c53161da6b44e              178 Release
+ 79c84c95f2bfde5ba48546b42b13e4e3886553b7760496f08120d7c2e2b650effa8471363b390b1fc76ff79b829bba43d836a86e5014b50078c358db2b027c3e             2345 main/binary-arm64/Packages
+ b3b6dc62b62fdadcea2648b93d599be61c3e89f93badbd707fcaf66b8b9aaaeb830af2c80e87e12f9472357a9c0dd08f5e10ec69889a22d1bb3a87084eb9fd48             1133 main/binary-arm64/Packages.gz
+ aece4f4333f0c820c7565ae0c5f214215e6c219ffbbb311d263b7a0ffd862e57ae1e69bd4802a58763d57828cf070b43f50ced2f4ab867415a0c5a04a8a47e27             1216 main/binary-arm64/Packages.xz
