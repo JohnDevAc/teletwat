@@ -52,7 +52,10 @@ fi
 systemctl disable --now tvh_ndi_bridge.service 2>/dev/null || true
 systemctl disable --now tvh-ndi-bridge.service 2>/dev/null || true
 systemctl enable teletool.service 2>/dev/null || true
-systemctl restart teletool.service 2>/dev/null || true
+if ! systemctl restart teletool.service; then
+  echo "ERROR: TeleTool could not restart after installation." >&2
+  exit 1
+fi
 
 if [ "$defer_completion" = "1" ]; then
   exit 0

@@ -44,11 +44,15 @@ jobs:
             curl \
             dpkg-dev \
             file \
+            gir1.2-gstreamer-1.0 \
+            gstreamer1.0-alsa \
+            gstreamer1.0-plugins-base \
             gstreamer1.0-tools \
             libgstreamer1.0-dev \
             libgstreamer-plugins-base1.0-dev \
             libasound2-dev \
             pkg-config \
+            python3-gi \
             python3-reportlab \
             rustc \
             xz-utils
@@ -67,6 +71,13 @@ jobs:
 
       - name: Validate audio output lifecycle
         run: python3 scripts/check_audio_output_lifecycle.py
+
+      - name: Validate concurrent lifecycle and state changes
+        run: |
+          python3 scripts/check_gst_lifecycle.py
+          python3 scripts/check_concurrent_state.py
+          python3 scripts/check_update_health.py
+          python3 scripts/check_release_shell.py
 
       - name: Validate Inferno PTP readiness
         run: python3 scripts/check_inferno_ptp_status.py
@@ -214,6 +225,7 @@ jobs:
       url: https://johndevac.github.io/TeleTool/apt-repo/dists/stable/InRelease
     permissions:
       contents: write
+      pages: write
     steps:
       - name: Check out Main
         uses: actions/checkout@v5
@@ -275,3 +287,9 @@ jobs:
             git commit -m "Publish TeleTool $PACKAGE_VERSION packages"
           fi
           git push --atomic origin HEAD:main HEAD:dev
+
+      - name: Deploy and verify the public stable APT site
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: bash scripts/publish_stable_pages.sh "$(git rev-parse HEAD)"

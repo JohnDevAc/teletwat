@@ -58,6 +58,7 @@ UPDATE_STATUS_RECENT_S = 600
 INFERNO_PACKAGE_CACHE_TTL_S = 30
 SYSTEM_TEMPERATURE_CACHE_TTL_S = 2.0
 UPDATE_LOCK = threading.Lock()
+UPDATE_REQUEST_LOCK = threading.Lock()
 INFERNO_PACKAGE_CACHE_LOCK = threading.Lock()
 SYSTEM_TEMPERATURE_CACHE_LOCK = threading.Lock()
 INFERNO_PACKAGE_CACHE: Dict[str, Any] = {
@@ -881,6 +882,11 @@ def api_system_update_from_server(req: ProgramUpdateReq):
         inferno_action = _normalise_inferno_action(req.inferno_action)
     except ValueError as e:
         raise HTTPException(400, str(e))
+    with UPDATE_REQUEST_LOCK:
+        return _start_package_update(branch, inferno_action)
+
+
+def _start_package_update(branch: str, inferno_action: str) -> Dict[str, Any]:
     current = _update_status_snapshot()
     if current.get("running"):
         raise HTTPException(409, "Update is already running")
@@ -897,6 +903,7 @@ def api_system_update_from_server(req: ProgramUpdateReq):
         branch=branch,
         inferno_action=inferno_action,
     )
+    _write_package_update_status(status)
     # Keep apt/dpkg outside teletool.service's cgroup. The package postinst
     # restarts TeleTool, which would otherwise kill its own update process.
     unit = _package_update_unit(branch, inferno_action)
@@ -907,7 +914,7 @@ def api_system_update_from_server(req: ProgramUpdateReq):
     )
     if rc != 0:
         failure = (err or out or "Could not start the TeleTool package updater").strip()
-        _set_update_status(
+        failure_status = _set_update_status(
             running=False,
             done=True,
             percent=100,
@@ -915,6 +922,7 @@ def api_system_update_from_server(req: ProgramUpdateReq):
             error=failure,
             finished_at=int(time.time()),
         )
+        _write_package_update_status(failure_status)
         raise HTTPException(500, failure)
     return {"ok": True, "message": "Signed package update started.", "status": status}
 

@@ -44,6 +44,14 @@ case "$update_target" in
     ;;
 esac
 
+# The systemd template has several instances, but all share one APT source and
+# status file. Acquire the lock before touching either, including the log.
+exec 9>/run/lock/teletool-update.lock
+if ! flock -n 9; then
+  printf 'Another TeleTool package update is already running.\n' >&2
+  exit 1
+fi
+
 write_status() {
   running="$1"
   done="$2"
@@ -155,15 +163,21 @@ case "$inferno_action" in
     ;;
 esac
 
+if [ "$after" != "$target_version" ]; then
+  printf 'TeleTool did not install at the required version %s.\n' "$target_version" >&2
+  exit 1
+fi
+if [ "$before" = "$after" ] && [ "$before_inferno" != "$after_inferno" ]; then
+  systemctl restart teletool.service
+fi
+write_status true false 90 "Checking TeleTool after the update" null null false
+python3 "$(dirname "$0")/check-update-health" "$after" "$channel"
+
 trap - EXIT
 if [ -n "$before" ] && [ "$before" = "$after" ] && [ "$before_inferno" = "$after_inferno" ]; then
   write_status false true 100 "TeleTool $channel_label is already up to date." null "$(date +%s)" false
 else
   write_status false true 100 "Switched to TeleTool $channel_label $after." null "$(date +%s)" true
-fi
-
-if [ "$before" = "$after" ] && [ "$before_inferno" != "$after_inferno" ]; then
-  systemctl try-restart teletool.service 2>/dev/null || true
 fi
 
 exit 0

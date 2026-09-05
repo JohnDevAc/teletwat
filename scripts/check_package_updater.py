@@ -27,6 +27,8 @@ require(
     "install --allow-downgrades",
     "apt-repo-dev",
     "update-status.json",
+    "flock -n 9",
+    'python3 "$(dirname "$0")/check-update-health" "$after" "$channel"',
 )
 require(
     "packaging/apt/install.sh",
@@ -60,6 +62,7 @@ require(
     "packaging/debian/update-package",
     "scan_report.py",
     "TELETOOL_RELEASE_BRANCH",
+    "packaging/debian/check-update-health",
 )
 require(
     "packaging/debian/control.in",
@@ -93,6 +96,16 @@ require(
     "teletool-stable-apt",
     "scripts/sign_apt_repo.sh",
     "git push --atomic origin HEAD:main HEAD:dev",
+    "pages: write",
+    "scripts/publish_stable_pages.sh",
+    "scripts/check_gst_lifecycle.py",
+    "scripts/check_concurrent_state.py",
+    "scripts/check_update_health.py",
+    "scripts/check_release_shell.py",
+)
+require(
+    "packaging/debian/postinst",
+    "if ! systemctl restart teletool.service; then",
 )
 require(
     "scripts/sign_apt_repo.sh",

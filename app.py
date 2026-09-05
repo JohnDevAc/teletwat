@@ -11,6 +11,7 @@ import threading
 import uuid
 from contextlib import asynccontextmanager
 from copy import deepcopy
+from functools import wraps
 from pathlib import Path
 from statistics import median
 from typing import Dict, List, Optional, Tuple, Any
@@ -253,6 +254,7 @@ NDI_RUNTIME_CONFIG_AT_START: Dict[str, Any] = {
 # simply stop rendering frames. This supervisor owns the desired channel state
 # and restarts the NDI pipeline with a freshly resolved tvheadend URL.
 NDI_SUPERVISOR_LOCK = threading.RLock()
+NDI_CONTROL_LOCK = threading.RLock()
 NDI_SUPERVISOR_STOP = threading.Event()
 NDI_SUPERVISOR_THREAD: Optional[threading.Thread] = None
 NDI_SUPERVISOR_STATE: Dict[str, Any] = {
@@ -274,6 +276,16 @@ NDI_SUPERVISOR_STATE: Dict[str, Any] = {
     "lineout_request": None,
     "lineout_last_restore_error": None,
 }
+
+
+def _serialise_ndi_control(func):
+    @wraps(func)
+    def controlled(*args, **kwargs):
+        # Include URL resolution/configuration, not just Gst.parse_launch(), so
+        # a Stop response cannot be followed by an older pending Start.
+        with NDI_CONTROL_LOCK:
+            return func(*args, **kwargs)
+    return controlled
 
 
 def _ndi_supervisor_config() -> Dict[str, Any]:
@@ -381,6 +393,7 @@ def _schedule_pending_ndi_start_after_restart(req_d: Dict[str, Any], *, source_m
     system_manager.schedule_program_restart(0.75)
 
 
+@_serialise_ndi_control
 def _start_pending_ndi_after_restart() -> None:
     pending = cfg.get("ndi_pending_start_request")
     if not isinstance(pending, dict):
@@ -447,6 +460,7 @@ def _channel_summary_for_uuid(channel_uuid: Optional[str]) -> Dict[str, Any]:
 
 RF_STATUS_LOCK = threading.Lock()
 RF_STATUS_CACHE: Dict[Tuple[str, str, str, str], Dict[str, Any]] = {}
+RF_STATUS_REFRESHING = set()
 RF_STATUS_DEFAULT_TTL_S = 3.0
 
 
@@ -857,31 +871,39 @@ def _rf_status_for_channel(channel_uuid: Optional[str] = None, channel_name: Opt
     with RF_STATUS_LOCK:
         cached = RF_STATUS_CACHE.get(key)
         now = time.monotonic()
-        if cached and (now - float(cached.get("monotonic_at") or 0.0)) < ttl:
-            out = deepcopy(cached.get("value") or _rf_unavailable())
+        refreshing = key in RF_STATUS_REFRESHING
+        if refreshing or (cached and (now - float(cached.get("monotonic_at") or 0.0)) < ttl):
+            out = deepcopy(cached.get("value") if cached else _rf_unavailable())
             out["cached"] = True
             out["cache_ttl_s"] = ttl
+            out["refreshing"] = refreshing
             return out
+        RF_STATUS_REFRESHING.add(key)
 
-    # Tvheadend calls can take seconds during a restart or retune. Do not hold the
-    # cache lock while performing network I/O; unrelated status requests should
-    # remain responsive and can safely converge on the same refreshed value.
-    value = _rf_status_for_channel_uncached(channel_uuid=channel_uuid, channel_name=channel_name)
-    with RF_STATUS_LOCK:
-        value["cached"] = False
-        value["cache_ttl_s"] = ttl
-        value["last_updated_at"] = int(time.time())
-        RF_STATUS_CACHE[key] = {
-            "monotonic_at": time.monotonic(),
-            "value": deepcopy(value),
-        }
-        if len(RF_STATUS_CACHE) > 32:
-            oldest = sorted(RF_STATUS_CACHE.items(), key=lambda item: float(item[1].get("monotonic_at") or 0.0))[:8]
-            for old_key, _ in oldest:
-                RF_STATUS_CACHE.pop(old_key, None)
-        return deepcopy(value)
+    # Only the refresh owner performs I/O. Other clients get the previous reading
+    # immediately, including while Tvheadend is restarting or retuning.
+    try:
+        value = _rf_status_for_channel_uncached(channel_uuid=channel_uuid, channel_name=channel_name)
+        with RF_STATUS_LOCK:
+            value["cached"] = False
+            value["cache_ttl_s"] = ttl
+            value["refreshing"] = False
+            value["last_updated_at"] = int(time.time())
+            RF_STATUS_CACHE[key] = {
+                "monotonic_at": time.monotonic(),
+                "value": deepcopy(value),
+            }
+            if len(RF_STATUS_CACHE) > 32:
+                oldest = sorted(RF_STATUS_CACHE.items(), key=lambda item: float(item[1].get("monotonic_at") or 0.0))[:8]
+                for old_key, _ in oldest:
+                    RF_STATUS_CACHE.pop(old_key, None)
+            return deepcopy(value)
+    finally:
+        with RF_STATUS_LOCK:
+            RF_STATUS_REFRESHING.discard(key)
 
 
+@_serialise_ndi_control
 def _restore_desired_lineout(reason: str = "supervisor restore") -> None:
     with NDI_SUPERVISOR_LOCK:
         audio_req = deepcopy(NDI_SUPERVISOR_STATE.get("lineout_request"))
@@ -967,6 +989,7 @@ def _start_test_card_pipeline_from_dict(req_d: Dict[str, Any]) -> None:
     )
 
 
+@_serialise_ndi_control
 def _restart_ndi_pipeline(reason: str) -> None:
     with NDI_SUPERVISOR_LOCK:
         req_d = deepcopy(NDI_SUPERVISOR_STATE.get("request"))
@@ -3351,6 +3374,7 @@ class TestCardReq(StartReq):
 
 
 @app.post("/api/start")
+@_serialise_ndi_control
 def api_start(req: StartReq):
     global _active_profile
     if _tv_setup_snapshot().get("running"):
@@ -3428,6 +3452,7 @@ def api_start(req: StartReq):
 
 
 @app.post("/api/test-card/start")
+@_serialise_ndi_control
 def api_test_card_start(req: TestCardReq):
     if _tv_setup_snapshot().get("running"):
         raise HTTPException(409, "TV Setup is running; the NDI test card cannot be started until setup finishes")
@@ -3493,6 +3518,7 @@ def api_test_card_start(req: TestCardReq):
 
 
 @app.post("/api/test-card/stop")
+@_serialise_ndi_control
 def api_test_card_stop():
     current = ndi_bridge.status_lite(include_logs=False, include_stats=False)
     if current.get("running") and current.get("source_mode") != "test_card":
@@ -3516,6 +3542,7 @@ def api_test_card_stop():
 
 
 @app.post("/api/stop")
+@_serialise_ndi_control
 def api_stop():
     # Disable the desired stream first so the supervisor does not auto-restart a deliberate stop.
     with NDI_SUPERVISOR_LOCK:
@@ -3538,6 +3565,7 @@ def api_stop():
     ndi_bridge.stop()
     return {"ok": True}
 
+@_serialise_ndi_control
 def _stop_ndi_for_tv_setup() -> bool:
     """Stop any active or desired NDI/audio pipeline before TV setup mutates Tvheadend."""
     was_running = False
@@ -3680,6 +3708,7 @@ def api_audio_defaults():
 
 
 @app.post("/api/audio/start")
+@_serialise_ndi_control
 def api_audio_start(req: LineOutStartReq):
     if TV_SETUP_STATE.get("running"):
         raise HTTPException(409, "TV Setup is running; audio output cannot be started until setup finishes")
@@ -3706,6 +3735,7 @@ def api_audio_start(req: LineOutStartReq):
 
 
 @app.post("/api/audio/stop")
+@_serialise_ndi_control
 def api_audio_stop():
     with NDI_SUPERVISOR_LOCK:
         NDI_SUPERVISOR_STATE["lineout_desired"] = False

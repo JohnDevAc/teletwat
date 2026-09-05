@@ -111,6 +111,7 @@ def shutdown() -> None:
 
 
 MANAGER_CONFIG_KEY = "manager_units"
+MANAGER_UNITS_LOCK = threading.RLock()
 MANAGER_ID_CONFIG_KEY = "manager_id"
 MANAGER_CONNECT_TIMEOUT_S = 0.7
 MANAGER_READ_TIMEOUT_S = 1.8
@@ -180,10 +181,11 @@ def _manager_device_identity() -> Dict[str, Optional[str]]:
 
 
 def _manager_identity(manager_url: Optional[str] = None) -> Dict[str, str]:
-    manager_id = str(_get_config().get(MANAGER_ID_CONFIG_KEY) or "").strip()
-    if not manager_id:
-        manager_id = uuid.uuid4().hex
-        _save_config_patch({MANAGER_ID_CONFIG_KEY: manager_id})
+    with MANAGER_UNITS_LOCK:
+        manager_id = str(_get_config().get(MANAGER_ID_CONFIG_KEY) or "").strip()
+        if not manager_id:
+            manager_id = uuid.uuid4().hex
+            _save_config_patch({MANAGER_ID_CONFIG_KEY: manager_id})
     return {
         "manager_id": manager_id,
         "manager_url": str(manager_url or "").strip(),
@@ -1480,7 +1482,6 @@ def api_manager_add_unit(req: ManagerUnitReq, request: Request):
 
     current_base_url = str(request.base_url).rstrip("/")
     units = _manager_units_with_remote_identity(_manager_units_from_config())
-    next_units = list(units)
     known_base_urls = {unit["base_url"].lower() for unit in units}
     known_mac_addresses = {
         mac_address
@@ -1506,7 +1507,6 @@ def api_manager_add_unit(req: ManagerUnitReq, request: Request):
             if mac_address and mac_address in known_mac_addresses:
                 raise HTTPException(409, "That physical TeleTool unit is already listed")
             new_unit = _manager_unit_from_target(target, identity)
-            next_units.append(new_unit)
             known_base_urls.add(base_key)
             if mac_address:
                 known_mac_addresses.add(mac_address)
@@ -1519,13 +1519,42 @@ def api_manager_add_unit(req: ManagerUnitReq, request: Request):
             result.update({"status": 500, "error": str(e)})
         results.append(result)
 
-    added_units = [result["unit"] for result in results if result.get("ok") and isinstance(result.get("unit"), dict)]
+    # Validation is deliberately outside the lock. Commit against the latest
+    # fleet so concurrent additions/deletions cannot overwrite each other.
+    with MANAGER_UNITS_LOCK:
+        next_units = _manager_units_from_config()
+        enriched = {unit["id"]: unit for unit in units}
+        next_units = [
+            {
+                **unit,
+                **{
+                    key: enriched[unit["id"]][key]
+                    for key in ("mac_address", "device_id")
+                    if not unit.get(key) and enriched.get(unit["id"], {}).get(key)
+                },
+            }
+            for unit in next_units
+        ]
+        for result in results:
+            if not result.get("ok"):
+                continue
+            new_unit = result["unit"]
+            duplicate = any(
+                unit["base_url"].lower() == new_unit["base_url"].lower()
+                or (new_unit.get("mac_address") and unit.get("mac_address") == new_unit["mac_address"])
+                for unit in next_units
+            )
+            if duplicate:
+                result.update(ok=False, status=409, error="That TeleTool unit is already listed")
+            else:
+                next_units.append(new_unit)
+        added_units = [result["unit"] for result in results if result.get("ok")]
+        if added_units:
+            _save_config_patch({MANAGER_CONFIG_KEY: next_units})
     if not added_units and len(host_entries) == 1:
         failed = results[0] if results else {}
         raise HTTPException(int(failed.get("status") or 400), str(failed.get("error") or "TeleTool unit could not be added"))
 
-    if added_units:
-        _save_config_patch({MANAGER_CONFIG_KEY: next_units})
     return {
         "ok": bool(added_units),
         "unit": added_units[0] if len(added_units) == 1 else None,
@@ -1538,15 +1567,16 @@ def api_manager_add_unit(req: ManagerUnitReq, request: Request):
 
 @router.delete("/api/manager/units/{unit_id}")
 def api_manager_delete_unit(unit_id: str):
-    units = _manager_units_from_config()
-    removed_units = [unit for unit in units if unit["id"] == unit_id]
-    next_units = [unit for unit in units if unit["id"] != unit_id]
-    if len(next_units) == len(units):
-        raise HTTPException(404, "TeleTool unit not found")
-    manager_identity = _manager_identity()
-    for unit in removed_units:
-        _manager_release_unit(unit, manager_identity)
-    _save_config_patch({MANAGER_CONFIG_KEY: next_units})
+    with MANAGER_UNITS_LOCK:
+        units = _manager_units_from_config()
+        removed_units = [unit for unit in units if unit["id"] == unit_id]
+        next_units = [unit for unit in units if unit["id"] != unit_id]
+        if len(next_units) == len(units):
+            raise HTTPException(404, "TeleTool unit not found")
+        manager_identity = _manager_identity()
+        for unit in removed_units:
+            _manager_release_unit(unit, manager_identity)
+        _save_config_patch({MANAGER_CONFIG_KEY: next_units})
     return {"ok": True, "units": _manager_units_from_config()}
 
 

@@ -139,6 +139,8 @@ install -m 0755 "$PROJECT_DIR/packaging/debian/configure-tvheadend" \
   "$app_root/bin/configure-tvheadend"
 install -m 0755 "$PROJECT_DIR/packaging/debian/update-package" \
   "$app_root/bin/update-package"
+install -m 0755 "$PROJECT_DIR/packaging/debian/check-update-health" \
+  "$app_root/bin/check-update-health"
 sed "s/__INSTALLER_VERSION__/$INSTALLER_VERSION/g" \
   "$PROJECT_DIR/packaging/debian/terminal-ui" > "$app_root/bin/terminal-ui"
 chmod 0644 "$app_root/bin/terminal-ui"

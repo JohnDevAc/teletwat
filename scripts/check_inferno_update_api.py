@@ -67,6 +67,7 @@ def main() -> None:
     calls = []
     sm.PACKAGE_MANAGED = True
     sm._update_status_snapshot = lambda: {"running": False}
+    sm._write_package_update_status = lambda status: None
     sm._run_cmd = lambda argv, **kwargs: (calls.append(argv) or (0, "", ""))
 
     for branch in ("main", "dev"):

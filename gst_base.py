@@ -23,13 +23,17 @@ class GstPipelineBase:
 
     def __init__(self, log_maxlen: int = 400):
         self._lock = threading.Lock()
+        self._lifecycle_lock = threading.RLock()
+        self._state_change_lock = threading.Lock()
+        self._stop_event = threading.Event()
 
         self._loop: Optional[GLib.MainLoop] = None
         self._context: Optional[GLib.MainContext] = None
         self._thread: Optional[threading.Thread] = None
         self._pipeline: Optional[Gst.Pipeline] = None
         self._bus_watch_id: Optional[int] = None
-        self._poll_id: Optional[int] = None
+        self._poll_source: Optional[GLib.Source] = None
+        self._stop_source: Optional[GLib.Source] = None
 
         self._log_full: Deque[str] = deque(maxlen=log_maxlen)
         # Tail log is used for frequent UI polling to avoid copying the full log deque.
@@ -84,7 +88,9 @@ class GstPipelineBase:
             # If we have a pipeline object but never observed STATE_CHANGED on the
             # top-level pipeline (some GI builds), keep the UI sensible.
             state_for_ui = self._pipeline_state
-            if self._pipeline is not None and state_for_ui in ("NULL", "READY"):
+            if self._stop_event.is_set():
+                state_for_ui = "NULL"
+            elif self._pipeline is not None and state_for_ui in ("NULL", "READY"):
                 state_for_ui = "PLAYING"
 
             # Treat PLAYING/PAUSED as "running" for UI + secondary-output gating.
@@ -167,11 +173,20 @@ class GstPipelineBase:
         return box["result"]
 
     def _start_pipeline(self, pipeline_desc: str, poll_cb: Optional[Callable[[], bool]] = None):
-        GstPipelineBase.stop(self)
-        self._clear_status()
-
-        self._thread = threading.Thread(target=self._run_gst_thread, args=(pipeline_desc, poll_cb), daemon=True)
-        self._thread.start()
+        with self._lifecycle_lock:
+            GstPipelineBase.stop(self)
+            with self._lock:
+                if self._thread is not None and self._thread.is_alive():
+                    raise RuntimeError("The previous pipeline is still stopping; try again shortly")
+            self._clear_status()
+            with self._lock:
+                self._stop_event = threading.Event()
+                self._thread = threading.Thread(
+                    target=self._run_gst_thread,
+                    args=(pipeline_desc, poll_cb, self._stop_event),
+                    daemon=True,
+                )
+                self._thread.start()
 
     def _clear_status(self) -> None:
         with self._lock:
@@ -190,8 +205,11 @@ class GstPipelineBase:
                 pipeline = self._pipeline
                 last_error = self._last_error
                 thread = self._thread
+                cancelled = self._stop_event.is_set()
             if last_error:
                 raise RuntimeError(last_error)
+            if cancelled:
+                raise RuntimeError("Pipeline startup was cancelled")
             if pipeline is not None:
                 try:
                     result, state, _pending = pipeline.get_state(0)
@@ -210,129 +228,120 @@ class GstPipelineBase:
         raise RuntimeError(f"Timed out waiting for pipeline to reach PLAYING (last state: {last_state})")
 
     def stop(self):
+        # A bus callback must not wait on an external Stop which is joining it.
         with self._lock:
-            pipeline = self._pipeline
-            loop = self._loop
-            context = self._context
-            bus_watch_id = self._bus_watch_id
-            poll_id = self._poll_id
             thread = self._thread
-
-        if pipeline is not None:
-            try:
-                pipeline.set_state(Gst.State.NULL)
-            except Exception:
-                pass
-
-        if bus_watch_id is not None and pipeline is not None:
-            try:
-                bus = pipeline.get_bus()
-                bus.disconnect(bus_watch_id)
-            except Exception:
-                pass
-
-        if poll_id is not None:
-            try:
-                if context is None or context.find_source_by_id(poll_id) is not None:
-                    GLib.source_remove(poll_id)
-            except Exception:
-                pass
-
-        if loop is not None and loop.is_running():
-            try:
-                loop.quit()
-            except Exception as e:
-                self._push_warn(f"Failed to quit GStreamer loop: {e}")
-
-        if thread is not None and thread.is_alive() and thread is not threading.current_thread():
-            try:
+        if thread is threading.current_thread():
+            self._request_stop()
+            return
+        with self._lifecycle_lock:
+            self._request_stop()
+            with self._lock:
+                thread = self._thread
+            if thread is not None and thread.is_alive():
                 thread.join(timeout=2.0)
-            except Exception as e:
-                self._push_warn(f"Failed to join GStreamer thread: {e}")
+            with self._lock:
+                if thread is self._thread and (thread is None or not thread.is_alive()):
+                    self._thread = None
 
+    def _request_stop(self):
         with self._lock:
-            self._pipeline = None
-            self._loop = None
-            self._context = None
-            self._bus_watch_id = None
-            self._poll_id = None
-            self._thread = None
+            self._stop_event.set()
+        # Serialize NULL against the worker's final cancellation check and PLAYING.
+        with self._state_change_lock:
+            with self._lock:
+                pipeline = self._pipeline
+                loop = self._loop
+                context = self._context
+                poll_source = self._poll_source
+            if poll_source is not None:
+                poll_source.destroy()
+            if pipeline is not None:
+                pipeline.set_state(Gst.State.NULL)
+            if loop is not None:
+                loop.quit()
+                # quit() before run() is not sticky; cover that startup window too.
+                source = GLib.idle_source_new()
+                source.set_callback(lambda _data=None: (loop.quit(), False)[1], None)
+                with self._lock:
+                    if self._context is context and self._pipeline is pipeline:
+                        if self._stop_source is not None:
+                            self._stop_source.destroy()
+                        self._stop_source = source
+                        source.attach(context)
+        with self._lock:
             self._pipeline_state = "NULL"
 
     # ---------- GStreamer thread ----------
 
-    def _run_gst_thread(self, pipeline_desc: str, poll_cb: Optional[Callable[[], bool]]):
+    def _run_gst_thread(self, pipeline_desc: str, poll_cb: Optional[Callable[[], bool]], stop_event: threading.Event):
+        pipeline = None
+        context = None
+        bus = None
+        bus_watch_id = None
+        poll_source = None
         try:
             pipeline = Gst.parse_launch(pipeline_desc)
             if not isinstance(pipeline, Gst.Pipeline):
                 raise RuntimeError("Pipeline is not a Gst.Pipeline")
+            with self._state_change_lock:
+                if stop_event.is_set():
+                    return
+                context = GLib.MainContext()
+                context.push_thread_default()
+                loop = GLib.MainLoop.new(context, False)
+                bus = pipeline.get_bus()
+                bus.add_signal_watch()
+                bus_watch_id = bus.connect("message", self._on_bus_message)
+                if poll_cb is not None:
+                    poll_source = GLib.timeout_source_new_seconds(1)
+                    poll_source.set_callback(lambda _data=None: not stop_event.is_set() and bool(poll_cb()), None)
+                    poll_source.attach(context)
+                with self._lock:
+                    self._pipeline = pipeline
+                    self._loop = loop
+                    self._context = context
+                    self._bus_watch_id = bus_watch_id
+                    self._poll_source = poll_source
+                if pipeline.set_state(Gst.State.PLAYING) == Gst.StateChangeReturn.FAILURE:
+                    raise RuntimeError("Pipeline failed to enter PLAYING")
+            if not stop_event.is_set():
+                loop.run()
         except Exception as e:
-            self._push_err(f"Pipeline build failed: {e}")
-            return
-
-        # Run the pipeline inside its own GLib MainContext so other threads can
-        # safely schedule work (element property changes, etc.) into this loop.
-        context = GLib.MainContext()
-        context.push_thread_default()
-        loop = GLib.MainLoop.new(context, False)
-        bus = pipeline.get_bus()
-        bus.add_signal_watch()
-
-        with self._lock:
-            self._pipeline = pipeline
-            self._loop = loop
-            self._context = context
-
-        self._bus_watch_id = bus.connect("message", self._on_bus_message)
-
-        if poll_cb is not None:
-            # poll_cb must return True to keep polling
-            poll_source = GLib.timeout_source_new_seconds(1)
-            poll_source.set_callback(lambda _data=None: bool(poll_cb()), None)
-            self._poll_id = poll_source.attach(context)
-
-        try:
-            pipeline.set_state(Gst.State.PLAYING)
-        except Exception as e:
-            self._push_err(f"Failed to set PLAYING: {e}")
-            try:
-                pipeline.set_state(Gst.State.NULL)
-            except Exception:
-                pass
-            with self._lock:
-                if self._pipeline is pipeline:
-                    self._pipeline = None
-                    self._loop = None
-                    self._context = None
-                    self._bus_watch_id = None
-                    self._poll_id = None
-                    self._pipeline_state = "NULL"
-            return
-
-        try:
-            loop.run()
+            if not stop_event.is_set():
+                self._push_err(f"Pipeline failed: {e}")
         finally:
+            if poll_source is not None:
+                poll_source.destroy()
             try:
-                pipeline.set_state(Gst.State.NULL)
+                if pipeline is not None:
+                    pipeline.set_state(Gst.State.NULL)
             except Exception:
                 pass
             try:
-                bus.remove_signal_watch()
+                if bus is not None:
+                    if bus_watch_id is not None:
+                        bus.disconnect(bus_watch_id)
+                    bus.remove_signal_watch()
             except Exception:
                 pass
 
             try:
-                context.pop_thread_default()
+                if context is not None:
+                    context.pop_thread_default()
             except Exception:
                 pass
 
             with self._lock:
                 if self._pipeline is pipeline:
+                    if self._stop_source is not None:
+                        self._stop_source.destroy()
+                        self._stop_source = None
                     self._pipeline = None
                     self._loop = None
                     self._context = None
                     self._bus_watch_id = None
-                    self._poll_id = None
+                    self._poll_source = None
                     self._pipeline_state = "NULL"
 
     def _on_bus_message(self, _bus: Gst.Bus, msg: Gst.Message):
