@@ -247,7 +247,8 @@ class GstPipelineBase:
     def _request_stop(self):
         with self._lock:
             self._stop_event.set()
-        # Serialize NULL against the worker's final cancellation check and PLAYING.
+        # Wake the worker after its final cancellation check and PLAYING transition.
+        # Only that worker sets NULL, so bus dispatch cannot race sink teardown.
         with self._state_change_lock:
             with self._lock:
                 pipeline = self._pipeline
@@ -256,8 +257,6 @@ class GstPipelineBase:
                 poll_source = self._poll_source
             if poll_source is not None:
                 poll_source.destroy()
-            if pipeline is not None:
-                pipeline.set_state(Gst.State.NULL)
             if loop is not None:
                 loop.quit()
                 # quit() before run() is not sticky; cover that startup window too.

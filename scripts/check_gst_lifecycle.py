@@ -2,8 +2,11 @@
 """Exercise cancellation and private-context cleanup, using real Gst when available."""
 
 import ast
+import faulthandler
 from collections import deque
+import os
 from pathlib import Path
+import tempfile
 import threading
 import time
 from types import SimpleNamespace
@@ -201,11 +204,24 @@ def test_real_audio_and_eos():
     if not REAL_GST:
         return
     bridge = Bridge()
-    bridge._start_pipeline("audiotestsrc is-live=true wave=ticks freq=1000 ! audioconvert ! alsasink device=null")
-    try:
-        bridge._wait_until_playing(3)
-    finally:
-        bridge.stop()
+    with tempfile.TemporaryDirectory(prefix="teletool-alsa-test-") as directory:
+        config = Path(directory) / "asound.conf"
+        # A PCM-only wrapper avoids Gst 1.24's unbounded DSD rate probe on raw null.
+        config.write_text(
+            'pcm.teletool_test { type linear slave { pcm { type null } format S16_LE } }\n',
+            encoding="ascii",
+        )
+        with patch.dict(os.environ, ALSA_CONFIG_PATH=str(config)):
+            bridge._start_pipeline(
+                "audiotestsrc is-live=true wave=ticks freq=1000 ! audioconvert ! "
+                "audio/x-raw,format=S16LE,rate=48000,channels=2 ! alsasink device=teletool_test"
+            )
+            worker = bridge._thread
+            try:
+                bridge._wait_until_playing(3)
+            finally:
+                bridge.stop()
+            assert not worker.is_alive() and bridge._pipeline is None
     bridge._start_pipeline("audiotestsrc num-buffers=2 ! fakesink", poll_cb=lambda: True)
     worker = bridge._thread
     worker.join(3)
@@ -215,9 +231,36 @@ def test_real_audio_and_eos():
         bridge.stop()
 
 
+def test_state_changes_stay_on_worker():
+    bridge = Bridge()
+    transitions = []
+    set_state = Gst.Pipeline.set_state
+
+    def record_state(pipeline, state):
+        transitions.append((state, threading.current_thread()))
+        return set_state(pipeline, state)
+
+    with patch.object(Gst.Pipeline, "set_state", record_state):
+        bridge._start_pipeline(DESCRIPTION)
+        worker = bridge._thread
+        try:
+            bridge._wait_until_playing(3)
+        finally:
+            bridge.stop()
+        assert not worker.is_alive()
+        assert transitions and transitions[-1][0] == Gst.State.NULL
+        assert all(thread is worker for _state, thread in transitions)
+
+
 if __name__ == "__main__":
-    test_delayed_parse()
-    test_stop_before_loop_run()
-    test_repeated_start_stop()
-    test_real_audio_and_eos()
+    faulthandler.dump_traceback_later(45, exit=True)
+    try:
+        for test in (
+            test_delayed_parse, test_stop_before_loop_run, test_repeated_start_stop,
+            test_real_audio_and_eos, test_state_changes_stay_on_worker,
+        ):
+            print(test.__name__, flush=True)
+            test()
+    finally:
+        faulthandler.cancel_dump_traceback_later()
     print("GStreamer lifecycle regression checks passed (" + ("real Gst/GLib" if REAL_GST else "test doubles") + ").")
